@@ -85,7 +85,7 @@ public class TreQueries {
         
         String s = "";
         try {
-            String query = String.format("SELECT sum(quantita * prezzo * 0.3) + StipendioBase AS StipendioDipendente FROM "
+            String query = String.format("SELECT COALESCE(sum(quantita * prezzo * 0.3), 0) + (SELECT StipendioBase FROM Massaggiatore Mass WHERE Mass.codicefiscale = '%1$s') AS StipendioDipendente FROM "
                                        		+ "(SELECT count(*) AS quantita, TipoMassaggio, T.Prezzo FROM "
                                        		+ " Massaggio M "
                                        		+ " INNER JOIN TipoMassaggio T "
@@ -94,9 +94,6 @@ public class TreQueries {
                                        		+ " AND EXTRACT (YEAR FROM M.DataMassaggio) = EXTRACT (YEAR FROM Date '%2$s') "
                                        		+ " AND EXTRACT (Month FROM M.DataMassaggio) = EXTRACT (Month FROM Date '%2$s') "
                                        		+ " GROUP BY TipoMassaggio, T.prezzo) AS foobar "
-                                       + "INNER JOIN Massaggiatore Mass "
-                                       + "ON Mass.codicefiscale = '%1$s' "
-                                       + "GROUP BY StipendioBase "
                                        + "UNION "
                                        + "SELECT Stipendio FROM Receptionist WHERE CodiceFiscale = '%1$s';",
                                                    dipendente, data);
