@@ -211,18 +211,21 @@ EXECUTE PROCEDURE inserimento_persona();
 CREATE OR REPLACE FUNCTION modifica_recapiti() RETURNS TRIGGER AS $$
     BEGIN    
         IF TG_TABLE_NAME = 'recapitocliente' THEN
-            IF (SELECT count(*) FROM recapitoCliente R where OLD.Cliente = R.Cliente) = 1 THEN
-                RAISE EXCEPTION 'Impossibile eseguire l operazione: il cliente deve avere almeno un recapito telefonico';
+            IF (SELECT count(*) FROM recapitoCliente R where OLD.Cliente = R.Cliente) = 0
+				AND	OLD.cliente IN (SELECT codicefiscale FROM cliente) THEN
+                	RAISE EXCEPTION 'Impossibile eseguire l operazione: il cliente deve avere almeno un recapito telefonico';
             END IF;
             
         ELSIF TG_TABLE_NAME = 'recapitomassaggiatore' THEN
-            IF (SELECT count(*) FROM recapitoMassaggiatore R where OLD.Massaggiatore = R.Massaggiatore) = 1 THEN
-                RAISE EXCEPTION 'Impossibile eseguire l operazione: il massaggiatore deve avere almeno un recapito telefonico';
+            IF (SELECT count(*) FROM recapitoMassaggiatore R where OLD.Massaggiatore = R.Massaggiatore) = 0 
+				AND	OLD.massaggiatore IN (SELECT codicefiscale FROM massaggiatore) THEN
+                	RAISE EXCEPTION 'Impossibile eseguire l operazione: il massaggiatore deve avere almeno un recapito telefonico';
             END IF;
             
         ELSE 
-            IF (SELECT count(*) FROM recapitoReceptionist R WHERE OLD.Receptionist = R.Receptionist) = 1 THEN
-                RAISE EXCEPTION 'Impossibile eseguire l operazione: il receptionist deve avere almeno un recapito telefonico';
+            IF (SELECT count(*) FROM recapitoReceptionist R WHERE OLD.Receptionist = R.Receptionist) = 0
+				AND	OLD.receptionist IN (SELECT codicefiscale FROM receptionist) THEN
+                	RAISE EXCEPTION 'Impossibile eseguire l operazione: il receptionist deve avere almeno un recapito telefonico';
             END IF;
             
         END IF;
@@ -235,17 +238,17 @@ CREATE OR REPLACE FUNCTION modifica_recapiti() RETURNS TRIGGER AS $$
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER modifica_recapito_cliente
-BEFORE UPDATE OF cliente OR DELETE ON recapitocliente
+AFTER UPDATE OF cliente OR DELETE ON recapitocliente
 FOR EACH ROW
 EXECUTE PROCEDURE modifica_recapiti();
 
 CREATE TRIGGER modifica_recapito_massaggiatore
-BEFORE UPDATE OF massaggiatore OR DELETE ON recapitomassaggiatore
+AFTER UPDATE OF massaggiatore OR DELETE ON recapitomassaggiatore
 FOR EACH ROW
 EXECUTE PROCEDURE modifica_recapiti();
 
 CREATE TRIGGER modifica_recapito_receptionist
-BEFORE UPDATE OF receptionist OR DELETE ON recapitoreceptionist
+AFTER UPDATE OF receptionist OR DELETE ON recapitoreceptionist
 FOR EACH ROW
 EXECUTE PROCEDURE modifica_recapiti();
 
@@ -301,8 +304,9 @@ CREATE OR REPLACE FUNCTION modifica_specializzazione() RETURNS TRIGGER AS $$
         r massaggio%rowtype;
         MassaggiatoreLibero varchar;
     BEGIN 
-		IF (SELECT count(*) FROM specializzazione S where OLD.massaggiatore = S.massaggiatore) = 0 THEN
-        	RAISE EXCEPTION 'Impossibile eseguire l operazione, il massaggiatore deve avere almeno una specializzazione';
+		IF (SELECT count(*) FROM specializzazione S where OLD.massaggiatore = S.massaggiatore) = 0
+			AND	OLD.massaggiatore IN (SELECT codicefiscale FROM massaggiatore) THEN
+        		RAISE EXCEPTION 'Impossibile eseguire l operazione, il massaggiatore deve avere almeno una specializzazione';
         END IF;
         
         FOR r IN
@@ -371,7 +375,8 @@ CREATE OR REPLACE FUNCTION cancellazione_massaggiatore() RETURNS TRIGGER AS $$
         LOOP
             SELECT Massaggiatore INTO MassaggiatoreLibero FROM (
                 SELECT S.Massaggiatore FROM Specializzazione S
-                WHERE S.TipoMassaggio = r.TipoMassaggio
+                WHERE S.Massaggiatore <> OLD.codicefiscale 
+				AND S.TipoMassaggio = r.TipoMassaggio
                 EXCEPT
                 SELECT M.Massaggiatore FROM Massaggio M
                 WHERE M.datamassaggio = r.datamassaggio 
@@ -394,13 +399,13 @@ sarà cancellata', r.cliente, r.datamassaggio, r.orainizio;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER cancella_massaggiatore 
-AFTER DELETE ON massaggiatore 
+BEFORE DELETE ON massaggiatore 
 FOR EACH ROW 
 EXECUTE PROCEDURE cancellazione_massaggiatore();
 
 
 /*
-	Alla cancellazione di una sala prova a sostituire tutte i massaggi futuri previsti in quella sala 
+	Alla cancellazione di una sala prova a sostituire tutti i massaggi futuri previsti in quella sala 
 	e prova a sostituirla con un'altra sala in cui ci sono lettini liberi.
 	Per ogni massaggio per cui non risulta disponibile nessun lettino (e quindi nessuna sala)
 	verrà mostrata una nota ed il massaggio sarà cancellato.
@@ -419,12 +424,13 @@ CREATE OR REPLACE FUNCTION cancellazione_sala() RETURNS TRIGGER AS $$
                   OraInizio > current_time)
         LOOP
             SELECT S.NumeroSala INTO SalaLibera FROM Sala S
-            WHERE S.NumeroLettini > 0 AND S.numeroSala NOT IN (SELECT DISTINCT sala FROM Massaggio)
+            WHERE S.NumeroSala <> OLD.numeroSala 
+				  AND (S.NumeroLettini > 0 AND S.numeroSala NOT IN (SELECT DISTINCT sala FROM Massaggio)
 				  OR S.NumeroLettini > (
 				  SELECT count(*) FROM Massaggio M
 				  WHERE M.datamassaggio = r.datamassaggio 
 				  AND M.orafine > r.orainizio AND M.orainizio < r.oraFine
-				  AND M.Sala = S.numeroSala)
+				  AND M.Sala = S.numeroSala))
 			ORDER BY random() LIMIT 1;
 
             IF FOUND THEN
@@ -443,7 +449,7 @@ sarà cancellata', r.cliente, r.datamassaggio, r.orainizio;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER cancella_sala 
-AFTER DELETE ON sala 
+BEFORE DELETE ON sala 
 FOR EACH ROW 
 EXECUTE PROCEDURE cancellazione_sala();
 
@@ -547,7 +553,7 @@ CREATE OR REPLACE FUNCTION modifica_quantita_lettini() RETURNS TRIGGER AS $$
             END LOOP;
         END IF;
         EXECUTE format(
-            'DROP TABLE IF EXISTS NUOVA_TABELLA;'
+            'DROP TABLE IF EXISTS MASSAGGI_CONTEMPORANEI;'
         );
         RETURN NEW;
     END;
@@ -684,7 +690,7 @@ CREATE OR REPLACE FUNCTION prenota() RETURNS TRIGGER AS $$
         -- Verifica massaggiatori disponibili per tutta la durata
 
         -- Seleziona tutti i massaggiatori che sanno fare il tipo massaggio richiesto
-        SELECT Risultato.massaggiatore INTO massaggiatoreLibero from (
+        SELECT foo.massaggiatore INTO massaggiatoreLibero from (
             SELECT S.massaggiatore FROM Specializzazione S WHERE S.tipomassaggio = NEW.tipomassaggio
             EXCEPT
             -- Seleziona tutti i massaggiatori che sono impegnati in quel giorno in quell intervallo orario
