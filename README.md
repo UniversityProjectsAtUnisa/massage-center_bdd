@@ -6,6 +6,10 @@ Repository pubblica per il progetto di basi di dati del gruppo 07 sulla realtà 
 
 se sta visitando questa repository vuol probabilmente dire che sta apprezzando il nostro lavoro e ci fa molto piacere :).
 
+## Link alla relazione
+
+https://docs.google.com/document/d/12URqmOFwqdKhgiqweOonvfGQquUDRI_vY14Zp_4uyaY/edit?usp=sharing
+
 ## Installazione
 
 Creare un database locale con PostgreSQL chiamato "centromassaggi".
